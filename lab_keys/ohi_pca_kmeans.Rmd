@@ -1,0 +1,225 @@
+---
+title: 'ESM 244 Lab Week 6: Clustering (k-means & hierarchical)'
+output: 
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, echo = TRUE, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+library(tidyverse)
+library(ggfortify)
+library(factoextra)
+library(here)
+```
+
+```{r}
+ohi_rgns <- read_csv(here('data/rgn_names.csv')) %>%
+  select(rgn_id, georgn, rgn_label) %>%
+  distinct()
+ohi <- read_csv(here('data/ohi_scores_2021.csv')) %>%
+  left_join(ohi_rgns, by = c('region_id' = 'rgn_id')) %>%
+  filter(dimension == 'score') %>%
+  filter(nchar(goal) == 2) %>%
+  filter(year == 2021) %>%
+  spread(goal, score) %>%
+  drop_na()
+```
+
+
+```{r, eval = FALSE}
+ohi_pca <- prcomp(ohi %>%
+                    select(AO:TR),
+                  scale = TRUE)
+
+autoplot(ohi_pca,
+         data = ohi,
+         colour = 'georgn',
+         loadings = TRUE,
+         loadings.label = TRUE,
+         loadings.colour = 'grey50',
+         loadings.label.colour = "black",
+         loadings.label.vjust = -0.5
+) +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  scale_color_brewer(palette = 'Dark2') +
+  scale_fill_brewer(palette = 'Dark2')
+```
+
+# Simplify to 3 OHI goals
+
+```{r}
+set.seed(42)
+ohi3 <- ohi %>%
+  select(where(is.character), region_id, BD, FP, LE) %>%
+  mutate(lbl = ifelse(runif(n()) < .12, rgn_label, NA))
+```
+
+```{r}
+ohi3_scaled <- ohi3 %>% 
+  select(BD, FP, LE) %>%
+  scale()
+ohi3_kmeans <- kmeans(ohi3_scaled,
+                      centers = 4,
+                      nstart = 25)
+ohi3_k_df <- ohi3 %>%
+  mutate(clust = as.character(ohi3_kmeans$cluster))
+```
+
+## plot clusters against original axes
+
+```{r ggplot axes}
+ggplot(data = ohi3_k_df, aes(x = FP, y = BD, color = clust)) +
+  geom_point(size = 3) +
+  geom_text(aes(label = lbl),
+            vjust = 0, nudge_y = .2) +
+  labs(x = 'Food Provision', y = 'Biodiversity') +
+  scale_color_brewer(palette = 'Dark2') +
+  scale_fill_brewer(palette = 'Dark2') +
+  theme_minimal() +
+  theme(legend.position = 'none')
+
+ggplot(data = ohi3_k_df, aes(x = LE, y = BD, color = clust)) +
+  geom_point(size = 3) +
+  geom_text(aes(label = lbl),
+            vjust = 0, nudge_y = .2) +
+  labs(x = 'Livelihoods and Economies', y = 'Biodiversity') +
+  scale_color_brewer(palette = 'Dark2') +
+  scale_fill_brewer(palette = 'Dark2') +
+  theme_minimal() +
+  theme(legend.position = 'none')
+```
+
+```{r}
+fviz_cluster(ohi3_kmeans, ohi3, 
+             # axes = c(2, 3),
+             choose.vars = c('FP', 'BD'),
+             stand = FALSE,
+             geom = 'point') +
+  geom_text(data = ohi3_k_df, 
+            aes(x = FP, y = BD, color = clust, label = lbl),
+            vjust = 0, nudge_y = .2) +
+  scale_color_brewer(palette = 'Dark2') +
+  scale_fill_brewer(palette = 'Dark2') +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  labs(x = 'Food Provision', y = 'Biodiversity')
+
+fviz_cluster(ohi3_kmeans, ohi3, 
+             # axes = c(2, 3),
+             choose.vars = c('LE', 'BD'),
+             stand = FALSE,
+             geom = 'point') +
+  geom_text(data = ohi3_k_df, 
+            aes(x = LE, y = BD, color = clust, label = lbl),
+            vjust = 0, nudge_y = .2) +
+  scale_color_brewer(palette = 'Dark2') +
+  scale_fill_brewer(palette = 'Dark2') +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  labs(x = 'Livelihoods and Economies', y = 'Biodiversity')
+```
+
+## plot clusters against principal components
+
+``` {r}
+ohi3_pca <- prcomp(ohi3 %>%
+                    select(BD, FP, LE),
+                  scale = TRUE)
+
+loadings_df <- data.frame(ohi3_pca$rotation * 3) %>%
+  mutate(axis = row.names(.))
+
+new_pts_df <- data.frame(ohi3_pca$x) %>%
+  mutate(clust = as.character(ohi3_k_df$clust),
+         lbl   = as.character(ohi3_k_df$lbl))
+
+fviz_cluster(ohi3_kmeans, ohi3_scaled, 
+             axes = c(1, 2),
+             geom = 'point') +
+  geom_segment(data = loadings_df,
+               x = 0, y = 0, aes(xend = PC1, yend = PC2, group = axis),
+               arrow = arrow(length = unit(.25, 'cm'))) +
+  geom_text(data = loadings_df,
+            aes(x = PC1, y = PC2, label = axis), 
+            vjust = 0, nudge_y = .1) +
+  geom_text(data = new_pts_df, 
+            aes(x = PC1, y = PC2, color = clust, label = lbl),
+            vjust = 0, nudge_y = .05) +
+  scale_color_brewer(palette = 'Dark2') +
+  scale_fill_brewer(palette = 'Dark2') +
+  theme_minimal() +
+  theme(legend.position = 'none')
+
+fviz_cluster(ohi3_kmeans, ohi3_scaled, 
+             axes = c(3, 2),
+             geom = 'point') +
+  geom_segment(data = loadings_df,
+               x = 0, y = 0, aes(xend = PC3, yend = PC2, group = axis),
+               arrow = arrow(length = unit(.25, 'cm'))) +
+  geom_text(data = loadings_df,
+            aes(x = PC3, y = PC2, label = axis), 
+            vjust = 0, nudge_y = .1) +
+  geom_text(data = new_pts_df, 
+            aes(x = PC3, y = PC2, color = clust, label = lbl),
+            vjust = 0, nudge_y = .05) +
+  scale_color_brewer(palette = 'Dark2') +
+  scale_fill_brewer(palette = 'Dark2') +
+  theme_minimal() +
+  theme(legend.position = 'none')
+```
+
+
+```{r, eval = FALSE}
+ohi3_pca <- prcomp(ohi3 %>%
+                    select(BD, FP, LE),
+                  scale = TRUE)
+
+loadings_df <- data.frame(ohi3_pca$rotation * 3) %>%
+  mutate(axis = row.names(.))
+
+new_pts_df <- data.frame(ohi3_pca$x) %>%
+  mutate(clust = as.character(ohi3_k_df$clust),
+         lbl   = as.character(ohi3_k_df$lbl))
+
+ggplot() +
+  geom_point(data = new_pts_df, 
+             aes(x = PC1, y = PC2, color = clust),
+             size = 3) +
+  geom_segment(data = loadings_df,
+               x = 0, y = 0, aes(xend = PC1, yend = PC2, group = axis),
+               arrow = arrow(length = unit(.25, 'cm'))) +
+  geom_text(data = loadings_df,
+            aes(x = PC1, y = PC2, label = axis), 
+            vjust = 0, nudge_y = .1) +
+  geom_text(data = new_pts_df, 
+            aes(x = PC1, y = PC2, color = clust, label = lbl),
+            vjust = 0, nudge_y = 1) +
+  scale_color_brewer(palette = 'Dark2') +
+  scale_fill_brewer(palette = 'Dark2') +
+  labs(x = 'PC1 (38.3%)', y = 'PC2 (31.7%)') +
+  theme_minimal() +
+  theme(legend.position = 'none')
+
+ggplot() +
+  geom_point(data = new_pts_df, 
+             aes(x = PC2, y = PC3, color = clust),
+             size = 3) +
+  geom_segment(data = loadings_df,
+               x = 0, y = 0, aes(xend = PC2, yend = PC3, group = axis),
+               arrow = arrow(length = unit(.25, 'cm'))) +
+  geom_text(data = loadings_df,
+            aes(x = PC2, y = PC3, label = axis), 
+            vjust = 1, nudge_y = -.1) +
+  geom_text(data = new_pts_df, 
+            aes(x = PC1, y = PC2, color = clust, label = lbl),
+            vjust = 0, nudge_y = 1) +
+  scale_color_brewer(palette = 'Dark2') +
+  scale_fill_brewer(palette = 'Dark2') +
+  labs(x = 'PC2 (31.7%)', y = 'PC3 (30.0%)') +
+  theme_minimal() +
+  theme(legend.position = 'none')
+```
+
