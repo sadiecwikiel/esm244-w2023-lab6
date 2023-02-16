@@ -163,7 +163,7 @@ penguins_cl %>% select(species, cluster_no) %>% table()
 
 ```
 
-Takeaway: as we see from the graph, *most* chinstraps in Cluster 1, and *most* Adelies in Cluster 2, and *all* Gentoos are in Cluster 3 by k-means clustering. So this actually does a somewhat decent job of splitting up the three species into different clusters, with some overlap in Cluster 1 between Adelies & chinstraps, which is consistent with what we observed in exploratory data visualization. 
+Takeaway: as we see from the graph, *most* chinstraps in their own cluster, and *most* Adelies in a different cluster, and *all* Gentoos are in a distinct cluster by k-means clustering. So this actually does a somewhat decent job of splitting up the three species into different clusters, with some overlap in Cluster 1 between Adelies & chinstraps, which is consistent with what we observed in exploratory data visualization. 
 
 That's your intro to k-means clustering with penguins! 
 
@@ -304,6 +304,25 @@ tanglegram(dend_complete, dend_simple)
 
 That allows us to compare how things are clustered by the different linkages!
 
+Untangling:
+
+```{r}
+entanglement(dend_complete, dend_simple) # lower is better
+#> [1] 0.3959222
+
+untangle(dend_complete, dend_simple, method = "step1side") %>% 
+  entanglement()
+# [1] 0.06415907
+```
+
+Notice that just because we can get two trees to have horizontal connecting lines, it doesn’t mean these trees are identical (or even very similar topologically):
+
+``` {r}
+untangle(dend_complete, dend_simple, method = "step1side") %>% 
+   tanglegram(common_subtrees_color_branches = TRUE)
+```
+
+
 #### Want to plot your dendrogram with ggplot instead? Me too. 
 
 Here's how you can make your dendrogram with `ggplot` (here, I'll use the complete linkage example stored as `hc_complete`) using `ggdendrogram()`, a `ggplot` wrapper: 
@@ -317,6 +336,4 @@ ggdendrogram(hc_complete,
 # COOL. Then you can customize w/ usual ggplot tools. 
 ```
 
-
-
-## End Week 8 lab
+## End Week 6 lab
