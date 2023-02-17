@@ -1,0 +1,278 @@
+---
+title: "Lab 6"
+author: "Sadie Cwikiel"
+date: "2023-02-16"
+output: 
+  html_document: 
+    code_folding: show
+  
+---
+
+```{r setup, include=FALSE, echo  = TRUE, warning = FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(tidyverse)
+library(janitor)
+library(palmerpenguins)
+
+#packages for cluster analysis
+library(NbClust)
+library(cluster)
+library(factoextra)
+library(dendextend)
+library(ggdendro)
+```
+
+# Intro to cluster analysis -- k-means, hierarchical
+
+## Part 1: k-means clustering
+```{r}
+ggplot(penguins) +
+  geom_point(aes(x = bill_length_mm,
+                 y = bill_depth_mm,
+                 color = species,
+                 shape = sex),
+             size = 3,
+             alpha = 0.7) + #alpha is the transparency (1 is solid, 0 is fully  transparent)
+  scale_color_manual(values = c('orange', 'cyan4', 'darkmagenta'))
+
+ggplot(penguins) +
+  geom_point(aes(x = flipper_length_mm,
+                 y = body_mass_g,
+                 color = species,
+                 shape = sex),
+             size = 3, alpha = 0.7) +
+  scale_color_manual(values = c('orange', 'cyan4', 'darkmagenta'))
+```
+
+### Create a complete, scaled version of the data
+
+```{r}
+penguins_complete <- penguins %>% 
+  #we only really care about dropping NAs in the numeric columns, because that's what we'll use for the clustering
+  drop_na(bill_length_mm, bill_depth_mm, body_mass_g, flipper_length_mm) #only drops 2 obs
+
+penguins_scale <- penguins_complete %>% 
+  #selects all three columns that end in mm and the body mass
+  #can also select numeric type, but that would select the year which we don't want
+  select(ends_with('_mm'), body_mass_g) %>% 
+  #scale the data to turn it into a matrix so all of the columns have a mean of 0 and std dev is 1; get different units on the same playing field
+  scale()
+
+```
+
+### Estimate number of clusters
+How to identify what would be a good number of clusters 
+we know there are 3 penguin species, but if we didn't...
+some way to automatically go in and have R try some algorithms to find out what an appropriate number of clusters would be
+```{r}
+#take the scaled data, set min to 2 (1 cluster is silly), tell it the max you want is 10 (could sometimes be appropriate to be more than that), and tell it the clustering method (k-means)
+number_est <- NbClust(penguins_scale, 
+                      min.nc = 2, max.nc = 10, 
+                      method = 'kmeans')
+
+#according to the graphs: marginal value of the 5th cluster seems to improve the value
+#but in the console, it tells that the most algorithms recommend that 3 is the best number of algorithms. typically go with the majority rule (it specifically says: "according to the majority rule, the best number of clusters is 3")
+
+
+#another function that tells you clusters
+fviz_nbclust(penguins_scale, FUNcluster = kmeans,
+             method = 'wss', k.max = 10)
+#in the figure, look for where the sum of squares starts to level off. looks like after 3 it starts to level off quite a bit, don't get as much value from adding more clusters
+
+```
+
+### Run some k-means clustering
+```{r}
+#kmeans function built into R
+#tell it the number of clusters with centers =, it iterates until it finds the lowest sum of squared errors within each cluster
+set.seed(123)
+penguins_km <- kmeans(penguins_scale,
+                      centers = 3, 
+                      iter.max = 10, #this tells it how many times to iterate (can do less if it finds a good spot). if the dataset is messy, it can wobble back and forth and get stuck, so this lets it stop if that's the case
+                      nstart = 25) #redoes it 25 times so you don't get unlucky with a bad starting point
+  
+penguins_km
+#output
+#tells us where the centroids of the clusters are
+#which cluster is each observation assigned to
+
+#what are the sizes of the clusters
+#penguins_km$size
+
+#tells us the cluster number assigned to each penguin
+#penguins_km$cluster
+
+
+penguins_cl <- penguins_complete %>% 
+  #add a column of the assigned cluster as a categorical group
+  mutate(cluster_no = factor(penguins_km$cluster))
+```
+
+```{r}
+#plot that with the cluster
+ggplot(penguins_cl) +
+  geom_point(aes(x = flipper_length_mm,
+                 y = body_mass_g,
+                 color = cluster_no,
+                 shape = species))
+
+#looks like it did a pretty good job at categorizing gentoo, but chinstrap and adelie look pretty mixed
+
+#bill length and depth instead
+ggplot(penguins_cl) +
+  geom_point(aes(x = bill_length_mm,
+                 y = bill_depth_mm,
+                 color = cluster_no,
+                 shape = species)) +
+  scale_color_viridis_d() +
+  theme_minimal()
+#looks pretty good, some mismatch and areas of confusion/overlap 
+
+#see how well the clusters match up
+penguins_cl %>% 
+  select(species, cluster_no) %>% 
+  table() 
+#seems like the clusters have a reasonable physical explanation
+```
+
+# Hierarchical clustering
+
+### start with complete linkage
+```{r}
+### Create a distance matrix
+#figure out the euclidean distance between each data point, make a distance matrix using dist() 
+#make sure to use the re-scaled data
+peng_dist <- dist(penguins_scale, method = 'euclidean')
+
+
+### hierarchical clustering (complete linkage)
+peng_hc_complete <- hclust(peng_dist, method = 'complete')
+#other methods in addition to complete: single, average, ward.D 
+
+#plot a dendrogram
+plot(peng_hc_complete, cex = 0.6, hang = -1)
+
+
+### cut the tree into three clusters
+peng_cut_hc <- cutree(peng_hc_complete, 3)
+
+#quick way of comparing the clusters to the penguin names
+table(peng_cut_hc, penguins_complete$species) 
+# a bit different results than we got with k means clustering
+
+
+
+#certain types of linkages work better on different types of data, refer to that chart from lecture with all of the different options and which visual datasets they work better for
+```
+
+## Difference between binary logistic regression and this clustering
+BLR -- labeled, we know which species each goes to, so we can predict which species a new observation is based on other characteristics. trying to predict on new data based on a known set of data.
+
+Here, it creates the clusters based on the characteristics without knowing the species to make the clusters. this is unsupervised, so we don't know ahead of time what the clusters should be, but it still identifies the patterns. just throw the data in.
+
+
+
+# World Bank data
+
+## read in and simplify
+```{r}
+wb_env <- read_csv(here::here('data/wb_env.csv'))
+
+wb_ghg_20 <- wb_env %>% 
+  arrange(-ghg) %>% 
+  head(20)
+
+summary(wb_ghg_20)
+
+```
+
+### we want to scale the data
+```{r}
+# Scale the numeric variables (columns 3:7)
+wb_scaled <- wb_ghg_20 %>% 
+  select(3:7) %>% #way to select columsn 3 through 7, but usually  best to use names of the columns in case they get rearranged
+  scale()
+summary(wb_scaled)
+
+#this is just a matrix now, so need to give each of the columns names. we can't have categorical variables as columns so we can make them the row names. not creating a column or anything, just identifying each row by the country name rather than 1, 2, 3 etc.
+rownames(wb_scaled) <- wb_ghg_20$name
+```
+
+### find the euclidean distances
+```{r}
+#euclidean distance matrix
+euc_distance <- dist(wb_scaled, method = 'euclidean')
+```
+
+### perform hierarchical clustering using complete linkage
+```{r}
+hc_complete <- hclust(euc_distance, method = 'complete')
+plot(hc_complete, cex = 0.6, hang = -1)
+```
+### perform hierarchical clustering  by  single linkage
+```{r}
+hc_single <- hclust(euc_distance, method = 'single')
+plot(hc_single, cex = 0.6, hang = -1)
+```
+
+### make a tanglegram
+a way to compare two dendrograms to each other, eg. how does the complete linkage compare to the single linkage
+```{r}
+#put it into a class of object that the {dendextend} package can work with
+dend_complete <- as.dendrogram(hc_complete)
+dend_single <- as.dendrogram(hc_single)
+
+#lines up the dendrograms and sees how they compare to each other
+tanglegram(dend_complete, dend_single)
+#shows how the countries are clustered in different ways, colorful lines show the countries that are in the same clusters each time, grey for the countries that are in different clusters. which countries are still grouped in the same way? 
+
+#higher numbers mean less matched
+entanglement(dend_complete, dend_single)
+
+#tries flipping each cluster to see if you get a better lineup of the clusters. doesn't change the clusters just realigns them so it's easier to see them compared to each other
+untangle(dend_complete, dend_single, method = 'step1side') %>% 
+  entanglement() 
+
+#remake a tanglegram with the reorganized dendrograms
+untangle(dend_complete, dend_single, method = 'step1side') %>% 
+  tanglegram(common_subtrees_color_branches = TRUE) 
+```
+
+### dendrogram in ggplot
+more customization options
+```{r}
+ggdendrogram(hc_complete, rotate = TRUE) +
+  theme_minimal() +
+  labs(x = 'Country')
+
+# here y is the euclidean distance between the connections
+```
+
+For Shiny App:
+you can create different branches for each tab
+in the git window you can create a new branch
+then  you can work in that branch without editing the main branch at all
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
